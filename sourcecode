@@ -1,0 +1,1890 @@
+-- RE-EXECUTION SYSTEM: Cleans up previous instance before reloading
+if getgenv().LiquidLoaded then
+    -- Disconnect all connections
+    if getgenv().LiquidConnections then
+        for _, Connection in pairs(getgenv().LiquidConnections) do
+            if Connection and Connection.Disconnect then
+                pcall(function() Connection:Disconnect() end);
+            end;
+        end;
+        getgenv().LiquidConnections = nil;
+    end;
+    
+    -- Restore original hooks
+    if getgenv().LiquidOldNamecall then
+        pcall(function()
+            hookmetamethod(game, "__namecall", getgenv().LiquidOldNamecall);
+        end);
+        getgenv().LiquidOldNamecall = nil;
+    end;
+    
+    if getgenv().LiquidOldIndex then
+        pcall(function()
+            local Mt = getrawmetatable(game);
+            setreadonly(Mt, false);
+            Mt.__index = getgenv().LiquidOldIndex;
+            setreadonly(Mt, true);
+        end);
+        getgenv().LiquidOldIndex = nil;
+    end;
+    
+    -- Clear UI elements
+    if getgenv().LiquidUI then
+        for _, UI in pairs(getgenv().LiquidUI) do
+            if UI and UI.Destroy then
+                pcall(function() UI:Destroy() end);
+            end;
+        end;
+        getgenv().LiquidUI = nil;
+    end;
+    
+    -- Clear state
+    getgenv().LiquidState = nil;
+    
+    task.wait(0.1);
+end;
+
+getgenv().LiquidLoaded = true;
+getgenv().LiquidConnections = {};
+getgenv().LiquidUI = {};
+
+local Config = shared.liquid;
+
+-- ======================================
+-- KEY SYSTEM VALIDATION (REQUIRED)
+-- ======================================
+do
+    local HttpService = game:GetService("HttpService");
+    local Players = game:GetService("Players");
+    local LocalPlayer = Players.LocalPlayer;
+    
+    local API_URL = "https://liquid-key-system-production.up.railway.app/api/validate";
+    local WEBHOOK_URL = "https://discord.com/api/webhooks/1531884583329726636/VRTWjjO5qIC9s5ylb87tKUko5XQfao-cNy0n9jpQiRDSIwrJNyzQgn2ghQ4k8-2syBBH";
+    
+    -- Get HWID
+    local function GetHWID()
+        local hwid = nil;
+        if gethwid then pcall(function() hwid = gethwid() end) end;
+        if not hwid then
+            pcall(function()
+                hwid = game:GetService("RbxAnalyticsService"):GetClientId();
+            end);
+        end;
+        if not hwid then
+            hwid = tostring(LocalPlayer.UserId) .. "_" .. tostring(LocalPlayer.AccountAge);
+        end;
+        return hwid or "UNKNOWN_HWID";
+    end;
+    
+    -- Send webhook notification
+    local function SendWebhook(key, hwid, username, userId, status, message)
+        pcall(function()
+            local embed = {
+                title = status == "success" and "✅ Script Loaded" or "❌ Validation Failed",
+                color = status == "success" and 65280 or 16711680, -- Green or Red
+                fields = {
+                    {
+                        name = "Username",
+                        value = username,
+                        inline = true
+                    },
+                    {
+                        name = "User ID",
+                        value = tostring(userId),
+                        inline = true
+                    },
+                    {
+                        name = "HWID",
+                        value = hwid,
+                        inline = false
+                    },
+                    {
+                        name = "Key",
+                        value = key,
+                        inline = false
+                    },
+                    {
+                        name = "Status",
+                        value = message,
+                        inline = false
+                    }
+                },
+                timestamp = DateTime.now():ToIsoDate(),
+                footer = {
+                    text = "Liquid Key System"
+                }
+            };
+            
+            local data = {
+                embeds = { embed }
+            };
+            
+            request({
+                Url = WEBHOOK_URL,
+                Method = "POST",
+                Headers = {
+                    ["Content-Type"] = "application/json"
+                },
+                Body = HttpService:JSONEncode(data)
+            });
+        end);
+    end;
+    
+    -- Validate Key
+    local function ValidateKey()
+        local key = Config['Key'];
+        local hwid = GetHWID();
+        local username = LocalPlayer.Name;
+        local userId = LocalPlayer.UserId;
+        
+        print("[Liquid] Validating key...");
+        
+        local success, result = pcall(function()
+            local response = request({
+                Url = API_URL,
+                Method = "POST",
+                Headers = { ["Content-Type"] = "application/json" },
+                Body = HttpService:JSONEncode({ key = key, hwid = hwid })
+            });
+            
+            if response.StatusCode ~= 200 then
+                return { valid = false, reason = "API Error: " .. tostring(response.StatusCode) };
+            end;
+            
+            return HttpService:JSONDecode(response.Body);
+        end);
+        
+        if not success then
+            local errorMsg = "Failed to connect to validation server";
+            SendWebhook(key, hwid, username, userId, "error", errorMsg);
+            error("⚠️ Error: Key incorrect or HWID mismatch. Contact support.");
+            return false;
+        end;
+        
+        if result.valid then
+            local expiry = result.expiry or "Unknown";
+            print("✅ Authenticated");
+            print("[#                    ]");
+            task.wait(0.2);
+            print("[####                 ]");
+            task.wait(0.2);
+            print("[########             ]");
+            task.wait(0.2);
+            print("[############         ]");
+            task.wait(0.2);
+            print("[################     ]");
+            task.wait(0.2);
+            print("[####################]");
+            print("[Liquid] Script loaded successfully!");
+            SendWebhook(key, hwid, username, userId, "success", "Key validated | Expiry: " .. expiry);
+            return true;
+        else
+            local reason = result.reason or "Unknown error";
+            SendWebhook(key, hwid, username, userId, "failed", reason);
+            error("⚠️ Error: Key incorrect or HWID mismatch. Contact support.");
+            return false;
+        end;
+    end;
+    
+    -- Run validation (REQUIRED - script won't load without valid key)
+    if not ValidateKey() then
+        return; -- Stop script execution if key is invalid
+    end;
+end;
+
+-- Use global connection storage for re-execution cleanup
+-- getgenv().LiquidConnections and Config._drawings removed - using getgenv().LiquidConnections and getgenv().LiquidUI
+
+-- Services
+local Players = game:GetService('Players');
+local RunService = game:GetService('RunService');
+local UserInputService = game:GetService('UserInputService');
+local Workspace = game:GetService('Workspace');
+local CoreGui = game:GetService('CoreGui');
+
+local LocalPlayer = Players.LocalPlayer;
+local Mouse = LocalPlayer:GetMouse();
+local Camera = Workspace.CurrentCamera;
+
+-- Math shortcuts
+local Vector2New = Vector2.new;
+local Vector3New = Vector3.new;
+local Vector3Zero = Vector3.zero;
+local CFrameNew = CFrame.new;
+local MathClamp = math.clamp;
+local MathFloor = math.floor;
+local Clock = os.clock;
+
+-- State (stored in getgenv for re-execution)
+local State = getgenv().LiquidState or {
+    SilentLocked = false,
+    SilentTarget = nil,
+    AimAssistEnabled = false,
+    AimAssistTarget = nil,
+    TriggerBotEnabled = false,
+    TriggerBotTarget = nil,
+    ESPEnabled = true,
+    WalkSpeedActive = false,
+    JumpModificationsActive = false,
+    IsShooting = false,
+    IsReloading = false,
+    LastAttackTime = 0,
+    MainEvent = nil,
+    SilentMethod = nil,
+};
+getgenv().LiquidState = State;
+
+-- Game Config for Das and Da Hood variants
+local Games = {
+    [1008451066] = { Name = "Da Hood", Argument = "UpdateMousePosI2", Remote = "MainEvent", BodyEffects = "K.O" },
+    [2788229376] = { Name = "Da Hood", Argument = "UpdateMousePosI2", Remote = "MainEvent", BodyEffects = "K.O" },
+    [7213786345] = { Name = "Da Hood VC", Argument = "UpdateMousePosI", Remote = "MainEvent", BodyEffects = "K.O" },
+    [131796096293138] = { Name = "Das", Argument = "UpdateMousePos", Remote = "MainEvent", BodyEffects = "K.O" },
+};
+local CurrentGame = Games[game.PlaceId] or Games[game.GameId] or { Name = 'Universal', Argument = 'UpdateMousePos', Remote = 'MainEvent', BodyEffects = 'K.O' };
+
+-- Helper Functions
+local function IsKnocked(Player)
+    local BE = Player and Player.Character and Player.Character:FindFirstChild('BodyEffects');
+    if not BE or not CurrentGame.BodyEffects then return false end;
+    return BE:FindFirstChild(CurrentGame.BodyEffects) and BE[CurrentGame.BodyEffects].Value or false;
+end;
+
+local function IsAlive(Player)
+    local Character = Player and Player.Character;
+    if not Character then return false end;
+    local Humanoid = Character:FindFirstChildOfClass('Humanoid');
+    return Humanoid and Humanoid.Health > 0;
+end;
+
+local function PassesChecks(Player)
+    if Player == LocalPlayer then return false end;
+    if not IsAlive(Player) then return false end;
+    if IsKnocked(Player) then return false end;
+    return true;
+end;
+
+-- Position Cache for Prediction
+local PositionCache = {};
+local LastCacheUpdate = 0;
+
+local function UpdatePositionCache()
+    local Now = Clock();
+    if (Now - LastCacheUpdate) < 0.03 then return end;
+    LastCacheUpdate = Now;
+    
+    for _, Player in next, Players:GetPlayers() do
+        if Player ~= LocalPlayer and Player.Character then
+            local HRP = Player.Character:FindFirstChild('HumanoidRootPart');
+            if HRP then
+                if not PositionCache[Player] then PositionCache[Player] = {} end;
+                local Cache = PositionCache[Player];
+                table.insert(Cache, 1, { Position = HRP.Position, Time = Now });
+                if #Cache > 8 then Cache[#Cache] = nil end;
+            end;
+        end;
+    end;
+end;
+
+local function GetVelocity(Player)
+    local Cache = PositionCache[Player];
+    if not Cache or #Cache < 2 then return Vector3Zero end;
+    
+    local Newest = Cache[1];
+    local Older = Cache[2];
+    local DeltaTime = Newest.Time - Older.Time;
+    if DeltaTime <= 0.001 then return Vector3Zero end;
+    
+    local Velocity = (Newest.Position - Older.Position) / DeltaTime;
+    if Velocity.Magnitude > 300 then
+        Velocity = (Velocity / Velocity.Magnitude) * 300;
+    end;
+    return Velocity;
+end;
+
+local function ApplyPrediction(Position, Player)
+    local PredCfg = Config['Silent Aim']['Prediction'];
+    if not PredCfg['Enabled'] then return Position end;
+    
+    local Vel = GetVelocity(Player);
+    if Vel.Magnitude < 5 then return Position end;
+    
+    local PredPos = Position + Vel * Vector3New(PredCfg.X, PredCfg.Y, PredCfg.Z);
+    
+    -- Clamp prediction distance
+    if (PredPos - Position).Magnitude > 50 then
+        PredPos = Position + (PredPos - Position).Unit * 50;
+    end;
+    
+    return PredPos;
+end;
+
+-- Panic Ground Helper: Find ground position below a point
+local function GetGroundPosition(Position, ExcludeInstances)
+    local Params = RaycastParams.new();
+    Params.FilterType = Enum.RaycastFilterType.Exclude;
+    Params.FilterDescendantsInstances = ExcludeInstances or {};
+    local Result = Workspace:Raycast(Position, Vector3New(0, -2000, 0), Params);
+    return Result and Result.Position or nil;
+end;
+
+-- Panic Ground: Teleport player to ground
+local function RunPanicGround()
+    if not Config['Panic Ground']['Enabled'] then return end;
+    
+    local Character = LocalPlayer.Character;
+    local HRP = Character and Character:FindFirstChild('HumanoidRootPart');
+    local Humanoid = Character and Character:FindFirstChildOfClass('Humanoid');
+    if not HRP then return end;
+
+    local GroundPos = GetGroundPosition(HRP.Position, {Character});
+    if not GroundPos then return end;
+
+    HRP.CFrame = CFrameNew(GroundPos.X, GroundPos.Y + 3, GroundPos.Z) * (HRP.CFrame - HRP.CFrame.Position);
+    HRP.AssemblyLinearVelocity = Vector3Zero;
+    HRP.AssemblyAngularVelocity = Vector3Zero;
+
+    if Humanoid then
+        Humanoid.Jump = false;
+    end;
+end;
+
+-- Get Closest Player (with FOV checks)
+local function GetClosestPlayer()
+    local MousePos = UserInputService:GetMouseLocation();
+    local Closest = nil;
+    local BestDist = math.huge;
+    
+    for _, Player in next, Players:GetPlayers() do
+        if not PassesChecks(Player) then continue end;
+        
+        local Character = Player.Character;
+        if not Character then continue end;
+        
+        local HRP = Character:FindFirstChild('HumanoidRootPart');
+        if not HRP then continue end;
+        
+        local ScreenPos, OnScreen = Camera:WorldToViewportPoint(HRP.Position);
+        if not OnScreen or ScreenPos.Z <= 0 then continue end;
+        
+        local Dist = (Vector2New(ScreenPos.X, ScreenPos.Y) - MousePos).Magnitude;
+        
+        -- FOV limit (don't lock onto players too far from crosshair)
+        if Dist > 300 then continue end;
+        
+        if Dist < BestDist then
+            Closest = Player;
+            BestDist = Dist;
+        end;
+    end;
+    
+    return Closest;
+end;
+
+-- Update Silent Aim Target (validates current lock)
+local function UpdateSilentTarget()
+    if not State.SilentLocked then
+        State.SilentTarget = nil;
+        return;
+    end;
+    
+    if not Config['Silent Aim']['Enabled'] then
+        State.SilentTarget = nil;
+        State.SilentLocked = false;
+        return;
+    end;
+    
+    -- Check if current target is still valid
+    if State.SilentTarget then
+        if not PassesChecks(State.SilentTarget) or not State.SilentTarget.Character then
+            State.SilentTarget = nil;
+            State.SilentLocked = false;
+        end;
+    else
+        State.SilentLocked = false;
+    end;
+end;
+
+-- Silent Aim Implementation - Multi-Method System
+-- Priority Chain: 1) NameCall Hook, 2) __index Hook, 3) Mouse.Hit Override (fallback)
+do
+    local SilentAimActive = false;
+    
+    -- Method 1: Namecall Hook for MainEvent (BEST - modifies network arguments)
+    local function SetupNamecallHook()
+        local Success, Result = pcall(function()
+            if not ReplicatedStorage then return false end;
+            
+            local MainEvent = ReplicatedStorage:FindFirstChild('MainEvent') or ReplicatedStorage:WaitForChild('MainEvent', 5);
+            if not MainEvent then return false end;
+            
+            State.MainEvent = MainEvent;
+            
+            -- Store original for cleanup
+            if not getgenv().LiquidOldNamecall then
+                getgenv().LiquidOldNamecall = hookmetamethod(game, "__namecall", function(...) return getgenv().LiquidOldNamecall(...) end);
+            end;
+            
+            local OldNamecall = getgenv().LiquidOldNamecall;
+            
+            hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+                local Args = {...};
+                local Method = getnamecallmethod();
+                
+                -- Intercept MainEvent:FireServer for shooting
+                if self == State.MainEvent and Method == "FireServer" and not checkcaller() then
+                    local SACfg = Config['Silent Aim'];
+                    local Arg1 = Args[1];
+                    
+                    -- Check for shooting calls
+                    local IsShootCall = (Arg1 == "UpdateMousePos" or Arg1 == "UpdateMousePosI" or Arg1 == "UpdateMousePosI2" or Arg1 == "ShootGun" or Arg1 == "MOUSE");
+                    
+                    if IsShootCall and SACfg and SACfg['Enabled'] and State.SilentLocked and State.SilentTarget then
+                        local Target = State.SilentTarget;
+                        
+                        if Target and Target.Character and PassesChecks(Target) then
+                            local Hitpart = Target.Character:FindFirstChild(SACfg['Hitpart']) or Target.Character:FindFirstChild('HumanoidRootPart');
+                            
+                            if Hitpart then
+                                local TargetPos = ApplyPrediction(Hitpart.Position, Target);
+                                
+                                -- Modify different argument structures
+                                if Arg1 == "UpdateMousePos" or Arg1 == "UpdateMousePosI" or Arg1 == "UpdateMousePosI2" or Arg1 == "MOUSE" then
+                                    Args[2] = TargetPos;
+                                elseif Arg1 == "ShootGun" then
+                                    if Args[3] and typeof(Args[3]) == "Vector3" then
+                                        Args[3] = TargetPos;
+                                    end;
+                                    if Args[5] and typeof(Args[5]) == "Vector3" then
+                                        Args[5] = TargetPos;
+                                    end;
+                                end;
+                            end;
+                        end;
+                    end;
+                end;
+                
+                return OldNamecall(self, unpack(Args));
+            end));
+            
+            return true;
+        end);
+        
+        return Success and Result;
+    end;
+    
+    -- Method 2: __index Hook (GOOD - intercepts property reads)
+    local function SetupIndexHook()
+        local Success = pcall(function()
+            local Mt = getrawmetatable(game);
+            
+            -- Store original for cleanup
+            if not getgenv().LiquidOldIndex then
+                getgenv().LiquidOldIndex = Mt.__index;
+            end;
+            
+            local OldIndex = getgenv().LiquidOldIndex;
+            setreadonly(Mt, false);
+            
+            Mt.__index = newcclosure(function(self, key)
+                if not checkcaller() and self == Mouse and (key == 'Hit' or key == 'Target') then
+                    local SACfg = Config['Silent Aim'];
+                    
+                    if SACfg and SACfg['Enabled'] and State.SilentLocked and State.SilentTarget then
+                        local Target = State.SilentTarget;
+                        
+                        if Target and Target.Character and PassesChecks(Target) then
+                            local Hitpart = Target.Character:FindFirstChild(SACfg['Hitpart']) or Target.Character:FindFirstChild('HumanoidRootPart');
+                            
+                            if Hitpart then
+                                local TargetPos = ApplyPrediction(Hitpart.Position, Target);
+                                
+                                if key == 'Hit' then
+                                    return CFrameNew(TargetPos);
+                                elseif key == 'Target' then
+                                    return Hitpart;
+                                end;
+                            end;
+                        end;
+                    end;
+                end;
+                
+                return OldIndex(self, key);
+            end);
+            
+            setreadonly(Mt, true);
+            return true;
+        end);
+        
+        return Success;
+    end;
+    
+    -- Try methods in priority order
+    task.spawn(function()
+        -- Try Namecall hook first (best method for this game)
+        if SetupNamecallHook() then
+            State.SilentMethod = "Namecall Hook";
+            SilentAimActive = true;
+        end;
+        
+        -- Try __index hook (works alongside namecall)
+        task.wait(0.1);
+        if SetupIndexHook() then
+            State.SilentMethod = State.SilentMethod and (State.SilentMethod .. " + __index") or "__index Hook";
+            SilentAimActive = true;
+        end;
+    end);
+end;
+
+-- Aim Assist Function
+local function ApplyAimAssist()
+    if not State.AimAssistEnabled then 
+        State.AimAssistTarget = nil;
+        return;
+    end;
+    
+    local AimAssistCfg = Config['Aim Assist'];
+    if not AimAssistCfg['Enabled'] then 
+        State.AimAssistTarget = nil;
+        return;
+    end;
+    
+    local Target;
+    
+    -- Sticky aim: lock onto one target until invalid
+    if State.AimAssistTarget then
+        -- Check if current target is still valid
+        if State.AimAssistTarget.Parent and PassesChecks(State.AimAssistTarget) and State.AimAssistTarget.Character then
+            Target = State.AimAssistTarget; -- Keep current target
+        else
+            -- Current target is invalid, turn OFF aim assist (no auto re-target)
+            State.AimAssistTarget = nil;
+            State.AimAssistEnabled = false;
+            return;
+        end;
+    else
+        -- No current target, find closest
+        Target = GetClosestPlayer();
+        State.AimAssistTarget = Target;
+    end;
+    
+    if not Target or not Target.Character then
+        State.AimAssistTarget = nil;
+        State.AimAssistEnabled = false;
+        return;
+    end;
+    
+    if not PassesChecks(Target) then 
+        State.AimAssistTarget = nil;
+        State.AimAssistEnabled = false;
+        return;
+    end;
+    
+    local TargetChar = Target.Character;
+    local HRP = TargetChar:FindFirstChild('HumanoidRootPart');
+    if not HRP then return end;
+    
+    -- Get hit position based on hitpart setting
+    local Hitpart = TargetChar:FindFirstChild(AimAssistCfg['Hitpart']);
+    if not Hitpart then
+        Hitpart = HRP;
+    end;
+    
+    local TargetPos = Hitpart.Position;
+    
+    -- Apply prediction if enabled
+    if AimAssistCfg['Prediction']['Enabled'] then
+        local Vel = GetVelocity(Target);
+        if Vel.Magnitude >= 5 then
+            local PredValues = AimAssistCfg['Prediction'];
+            local PredPos = TargetPos + Vel * Vector3New(PredValues.X, PredValues.Y, PredValues.Z);
+            
+            -- Clamp prediction distance
+            local MaxPredDist = 50;
+            if (PredPos - TargetPos).Magnitude > MaxPredDist then
+                PredPos = TargetPos + (PredPos - TargetPos).Unit * MaxPredDist;
+            end;
+            
+            TargetPos = PredPos;
+        end;
+    end;
+    
+    local Sharpness = AimAssistCfg['Sharpness'] or 0.09;
+    local CamPos = Camera.CFrame.Position;
+    
+    local DesiredCFrame = CFrameNew(CamPos, TargetPos);
+    if Sharpness < 1 then
+        local FromLook = Camera.CFrame.LookVector;
+        local ToLook = (TargetPos - CamPos).Unit;
+        local NewLook = (FromLook + (ToLook - FromLook) * MathClamp(Sharpness, 0, 1)).Unit;
+        Camera.CFrame = CFrameNew(CamPos, CamPos + NewLook);
+    else
+        Camera.CFrame = DesiredCFrame;
+    end;
+end;
+
+-- Trigger Bot (adapted from cidir new - core logic)
+do
+    local TriggerBotCfg = Config['Trigger Bot'];
+    
+    local function PerformTriggerAttack()
+        if not TriggerBotCfg['Enabled'] then return end;
+        if not State.TriggerBotEnabled then return end;
+        
+        local Target = State.TriggerBotTarget;
+        if not Target or not IsAlive(Target) then
+            State.TriggerBotTarget = nil;
+            return;
+        end;
+        
+        local TargetChar = Target.Character;
+        if not TargetChar then return end;
+        
+        local Character = LocalPlayer.Character;
+        if not Character then return end;
+        
+        local Tool = Character:FindFirstChildOfClass('Tool');
+        if not Tool or not Tool:FindFirstChild('Ammo') or Tool.Name == '[Knife]' then return end;
+        
+        -- Check ammo before shooting to prevent blanking
+        local Ammo = Tool:FindFirstChild('Ammo');
+        if Ammo and Ammo.Value <= 0 then return end;
+        
+        local Humanoid = Character:FindFirstChild('Humanoid');
+        if not Humanoid or Humanoid.Health <= 0 then return end;
+        
+        local BodyEffects = Character:FindFirstChild('BodyEffects');
+        if BodyEffects then
+            if BodyEffects:FindFirstChild('K.O') and BodyEffects['K.O'].Value then return end;
+            if BodyEffects:FindFirstChild('Reload') and BodyEffects.Reload.Value then return end;
+            if BodyEffects:FindFirstChild('Dead') and BodyEffects.Dead.Value then return end;
+        end;
+        
+        -- Check if weapon is in allowed list
+        local Weapons = TriggerBotCfg['Weapons'];
+        if Weapons and next(Weapons) then
+            local WeaponValid = false;
+            for WeaponName, Enabled in pairs(Weapons) do
+                if Enabled and Tool.Name == WeaponName then
+                    WeaponValid = true;
+                    break;
+                end;
+            end;
+            if not WeaponValid then return end;
+        end;
+        
+        local SelfHRP = Character:FindFirstChild('HumanoidRootPart');
+        local TargetHRP = TargetChar:FindFirstChild('HumanoidRootPart');
+        if not SelfHRP or not TargetHRP then return end;
+        
+        -- Distance check
+        local TargetDist = (SelfHRP.Position - TargetHRP.Position).Magnitude;
+        local TrigMaxRange = TriggerBotCfg['Max Distance'] or math.huge;
+        if TargetDist > TrigMaxRange then return end;
+        
+        -- FOV check (cidir style)
+        local ViewportY = Camera.ViewportSize.Y;
+        local CamFOV = Camera.FieldOfView;
+        local AimPos = TargetHRP.Position;
+        
+        local ScreenPos, OnScreen = Camera:WorldToViewportPoint(AimPos);
+        if not OnScreen then return end;
+        
+        local HitCheck = TriggerBotCfg['Mode'] or 'FOV';
+        local ShouldFire = false;
+        
+        if HitCheck == 'Hitbox' then
+            local MouseTarget = Mouse.Target;
+            ShouldFire = MouseTarget and MouseTarget:IsDescendantOf(TargetChar);
+        else
+            -- FOV mode
+            local MouseLoc = UserInputService:GetMouseLocation();
+            local Delta = Vector2New(ScreenPos.X, ScreenPos.Y) - MouseLoc;
+            local Depth = ScreenPos.Z;
+            if Depth > 1 then
+                local ScaleFactor = (TargetHRP.Size.Y * ViewportY) / (Depth * 2) * 80 / CamFOV;
+                local ScaledW = 9e9 * ScaleFactor;
+                local ScaledH = 9e9 * ScaleFactor;
+                ShouldFire = (math.abs(Delta.X) <= ScaledW / 2 and math.abs(Delta.Y) <= ScaledH / 2);
+            end;
+        end;
+        
+        if ShouldFire then
+            local CurrentTime = Clock();
+            -- Increased delay to prevent blanking (was 0.002, now 0.05 for slightly slower but more reliable)
+            local MinDelay = math.max(TriggerBotCfg['Delay Interval'] or 0.05, 0.05);
+            
+            if CurrentTime - State.LastAttackTime >= MinDelay then
+                -- Double check ammo right before shooting
+                if Ammo and Ammo.Value > 0 then
+                    State.IsShooting = true;
+                    Tool:Activate();
+                    State.LastAttackTime = CurrentTime;
+                    task.delay(0.1, function()
+                        State.IsShooting = false;
+                    end);
+                end;
+            end;
+        end;
+    end;
+    
+    -- Update trigger bot target (runs in PreRender like cidir)
+    table.insert(getgenv().LiquidConnections, RunService.PreRender:Connect(function()
+        if not TriggerBotCfg['Enabled'] or not State.TriggerBotEnabled then
+            State.TriggerBotTarget = nil;
+            return;
+        end;
+        
+        -- Check if current target is still valid
+        if State.TriggerBotTarget then
+            if State.SilentLocked and State.SilentTarget and IsAlive(State.SilentTarget) then
+                -- Use silent aim target if locked
+                State.TriggerBotTarget = State.SilentTarget;
+            elseif not IsAlive(State.TriggerBotTarget) then
+                -- Target died/invalid, turn OFF trigger bot (no auto re-target)
+                State.TriggerBotTarget = nil;
+                State.TriggerBotEnabled = false;
+                return;
+            end;
+        else
+            -- No target yet, find one (first time only)
+            if State.SilentLocked and State.SilentTarget and IsAlive(State.SilentTarget) then
+                State.TriggerBotTarget = State.SilentTarget;
+            else
+                State.TriggerBotTarget = GetClosestPlayer();
+            end;
+            
+            -- If no target found, turn off
+            if not State.TriggerBotTarget then
+                State.TriggerBotEnabled = false;
+                return;
+            end;
+        end;
+        
+        PerformTriggerAttack();
+    end));
+end;
+
+-- No additional hooks needed - Mouse.Hit hook handles all games
+
+-- Das Hood Features (Inf Range & Wallbang)
+do
+    local ReplicatedStorage = game:GetService('ReplicatedStorage');
+    local DasHoodCfg = Config['Das Hood'];
+    local InfRangeCfg = DasHoodCfg['Inf Range'];
+    local WallbangCfg = DasHoodCfg['Wallbang'];
+    
+    if InfRangeCfg['Enabled'] then
+        task.spawn(function()
+            local MainEvent = ReplicatedStorage:FindFirstChild('MainEvent') or ReplicatedStorage:WaitForChild('MainEvent', 10);
+            if MainEvent then
+                -- Inf Range: Set all gun ranges to 999999
+                table.insert(getgenv().LiquidConnections, RunService.Heartbeat:Connect(function()
+                    local Character = LocalPlayer.Character;
+                    if Character then
+                        for _, Tool in next, Character:GetChildren() do
+                            if Tool:IsA('Tool') then
+                                local R = Tool:FindFirstChild('Range');
+                                if R then R.Value = 999999 end;
+                            end;
+                        end;
+                    end;
+                    local Backpack = LocalPlayer:FindFirstChild('Backpack');
+                    if Backpack then
+                        for _, Tool in next, Backpack:GetChildren() do
+                            if Tool:IsA('Tool') then
+                                local R = Tool:FindFirstChild('Range');
+                                if R then R.Value = 999999 end;
+                            end;
+                        end;
+                    end;
+                end));
+                
+                -- Hook MainEvent to modify ShootGun calls
+                local hookMM = hookmetamethod or (getgenv and getgenv().hookmetamethod);
+                if hookMM then
+                    local oldNC;
+                    oldNC = hookMM(game, '__namecall', function(self, ...)
+                        local method = getnamecallmethod();
+                        local args = {...};
+                        if self == MainEvent and method == 'FireServer' and args[1] == 'ShootGun' then
+                            if args[6] and type(args[6]) == 'number' then
+                                args[6] = 10;
+                            end;
+                            if args[3] and args[5] then
+                                local Dir = (args[3] - args[5]).Unit;
+                                args[3] = args[5] + Dir * 10;
+                            end;
+                        end;
+                        if args[1] == 'CHECKER_4' then return nil end;
+                        return oldNC(self, unpack(args));
+                    end);
+                end;
+            end;
+        end);
+    end;
+    
+    if WallbangCfg['Enabled'] then
+        local function DoWallbang()
+            local IgnoredFolder = Workspace:FindFirstChild('Ignored');
+            if not IgnoredFolder then
+                IgnoredFolder = Instance.new('Folder');
+                IgnoredFolder.Name = 'Ignored';
+                IgnoredFolder.Parent = Workspace;
+            end;
+            local Map = Workspace:FindFirstChild('MAP') or Workspace:FindFirstChild('Map');
+            if Map and Map.Parent ~= IgnoredFolder then
+                Map.Parent = IgnoredFolder;
+            end;
+        end;
+        DoWallbang();
+        table.insert(getgenv().LiquidConnections, RunService.Heartbeat:Connect(function()
+            if Config['Das Hood']['Wallbang']['Enabled'] then
+                DoWallbang();
+            end;
+        end));
+    end;
+end;
+
+-- Delay Changer (from armir.lua - exact code)
+local function ApplyDelayModification(Tool)
+    local weaponName = Tool.Name;
+    local delaySettings = Config['Das Hood']['Delay Changer'];
+    
+    if not delaySettings or not delaySettings['Enabled'] then
+        return;
+    end;
+    
+    local Delay = delaySettings['Weapons'][weaponName];
+    if Delay == nil then
+        return;
+    end;
+    
+    for Index, Connection in pairs(getconnections(Tool.Activated)) do
+        local Info = debug.getinfo(Connection.Function);
+        for i = 1, Info.nups do
+            local c, n = debug.getupvalue(Connection.Function, i);
+            if type(c) == "number" then 
+                debug.setupvalue(Connection.Function, i, Delay);
+            end;
+        end;
+    end;
+end;
+
+-- Spread Modifier (from armir - exact code)
+do
+    -- Get GunHandler from ReplicatedStorage
+    local ReplicatedStorage = game:GetService('ReplicatedStorage');
+    local GunHandler = nil;
+    local OriginalGetAim = nil;
+    local oldShoot = nil;
+    
+    -- Try to find GunHandler
+    local modules = ReplicatedStorage:FindFirstChild("Modules");
+    if modules then
+        GunHandler = modules:FindFirstChild("GunHandler");
+        if GunHandler then
+            GunHandler = require(GunHandler);
+        end;
+    end;
+    
+    if not GunHandler then
+        local combat = ReplicatedStorage:FindFirstChild("Combat");
+        if combat then
+            GunHandler = combat:FindFirstChild("GunHandler");
+            if GunHandler then
+                GunHandler = require(GunHandler);
+            end;
+        end;
+    end;
+    
+    if not GunHandler then
+        local weapons = ReplicatedStorage:FindFirstChild("Weapons");
+        if weapons then
+            GunHandler = weapons:FindFirstChild("GunHandler");
+            if GunHandler then
+                GunHandler = require(GunHandler);
+            end;
+        end;
+    end;
+    
+    -- Fallback if GunHandler not found
+    if not GunHandler then
+        GunHandler = {
+            getAim = function(Origin, MaxDistance)
+                return Vector3New(1,0,0), MaxDistance or 200;
+            end,
+            shoot = function(data)
+                return nil;
+            end
+        };
+    end;
+    
+    OriginalGetAim = GunHandler.getAim;
+    oldShoot = GunHandler.shoot;
+    
+    local function getCurrentWeaponName()
+        local character = LocalPlayer.Character;
+        if not character then
+            return nil;
+        end;
+        local tool = character:FindFirstChildOfClass("Tool");
+        if tool then
+            return tool.Name;
+        end;
+        return nil;
+    end;
+    
+    GunHandler.shoot = function(data)
+        local spreadConfig = Config['Das Hood']['Spread Modifier'];
+        local isSpreadEnabled = spreadConfig['Enabled'];
+        
+        if isSpreadEnabled then
+            local weaponName = getCurrentWeaponName();
+            if weaponName and spreadConfig['Weapons'][weaponName] ~= nil then
+                local spreadAmount = spreadConfig['Weapons'][weaponName];
+                spreadAmount = MathClamp(spreadAmount, 0, 1);
+                
+                local origin = data.ForcedOrigin;
+                local range = data.Range or 200;
+                if origin and data.AimPosition then
+                    local cleanDirection = GunHandler.getAim(origin, range);
+                    local spreadDirection = (data.AimPosition - origin).Unit;
+                    local finalDirection = spreadDirection:Lerp(
+                        cleanDirection,
+                        1 - spreadAmount
+                    ).Unit;
+                    data.AimPosition = origin + (finalDirection * range);
+                end;
+            end;
+        end;
+        
+        return oldShoot(data);
+    end;
+end;
+
+-- Movement Features (Anti Trip, No Jump Cooldown, Speed from armir, Jump from cidir new)
+do
+    local EnumFallingDown = Enum.HumanoidStateType.FallingDown;
+    local EnumRagdoll = Enum.HumanoidStateType.Ragdoll;
+    local EnumGettingUp = Enum.HumanoidStateType.GettingUp;
+    local EnumAir = Enum.Material.Air;
+    local EnumJumping = Enum.HumanoidStateType.Jumping;
+    local EnumFreefall = Enum.HumanoidStateType.Freefall;
+    local EnumLanded = Enum.HumanoidStateType.Landed;
+    local RaycastParamsNew = RaycastParams.new;
+    local EnumExclude = Enum.RaycastFilterType.Exclude;
+    
+    -- Get Movement Key for Jump (used by Jump Modifications)
+    local function GetMovementKey(Character, Humanoid, Cfg)
+        if not Character or not Humanoid then return 'Normal' end;
+        
+        local Tool = Character:FindFirstChildOfClass('Tool');
+        local IsKnife = Tool and Tool.Name == '[Knife]';
+        local IsReload = false;
+        
+        if Tool then
+            local Ammo = Tool:FindFirstChild('Ammo');
+            if Ammo and Ammo.Value == 0 then IsReload = true end;
+            if not IsReload then
+                local Reloading = Tool:FindFirstChild('Reloading');
+                if Reloading and Reloading.Value then IsReload = true end;
+            end;
+        end;
+        
+        local Threshold = 25;
+        local IsLowHealth = Humanoid and Humanoid.Health > 0 and Humanoid.Health <= Threshold;
+        local Desired = 'Normal';
+        
+        if IsKnife then
+            Desired = 'Knife';
+        elseif IsLowHealth then
+            Desired = 'Low Health';
+        elseif IsReload then
+            Desired = 'Reload';
+        elseif State.IsShooting then
+            Desired = 'Shooting';
+        end;
+        
+        local Conditions = (Cfg and Cfg['Conditions']) or {};
+        local Entry = Conditions[Desired];
+        if Entry and Entry['Enabled'] == false then
+            return 'Normal';
+        end;
+        return Desired;
+    end;
+    
+    -- Anti Trip
+    local function SetupAntiFall(Character)
+        if not Character then return end;
+        local Humanoid = Character:FindFirstChildOfClass('Humanoid') or Character:WaitForChild('Humanoid', 10);
+        if not Humanoid then return end;
+        table.insert(getgenv().LiquidConnections, Humanoid.StateChanged:Connect(function(_, NewState)
+            if not Config['Movement']['Anti Trip'] then return end;
+            if NewState == EnumFallingDown or NewState == EnumRagdoll then
+                Humanoid:ChangeState(EnumGettingUp);
+            end;
+        end));
+    end;
+    
+    if LocalPlayer.Character then SetupAntiFall(LocalPlayer.Character) end;
+    table.insert(getgenv().LiquidConnections, LocalPlayer.CharacterAdded:Connect(SetupAntiFall));
+    
+    -- No Jump Cooldown
+    local function SetupNoJumpCooldown(Character)
+        if not Character then return end;
+        local Humanoid = Character:FindFirstChildOfClass('Humanoid');
+        if not Humanoid then return end;
+        local DefaultJumpPower = Humanoid.JumpPower;
+        table.insert(getgenv().LiquidConnections, Humanoid:GetPropertyChangedSignal('JumpPower'):Connect(function()
+            if not Config['Movement']['No Jump Cooldown'] then return end;
+            if Humanoid.JumpPower == 0 then
+                local JumpModCfg = Config['Jump Modifications'];
+                if JumpModCfg['Enabled'] and State.JumpModificationsActive and not JumpModCfg['Spiderman Mode'] then
+                    local Key = GetMovementKey(Character, Humanoid, JumpModCfg);
+                    local Conditions = JumpModCfg['Conditions'] or {};
+                    local Entry = Conditions[Key];
+                    local Mult = (Entry and Entry['Enabled'] ~= false and Entry['Multiplier']) or 1;
+                    local Multiplier = JumpModCfg['Multiplier'] or 1;
+                    Humanoid.JumpPower = (Multiplier * 100) * Mult;
+                else
+                    Humanoid.JumpPower = DefaultJumpPower;
+                end;
+            end;
+        end));
+    end;
+    
+    if LocalPlayer.Character then SetupNoJumpCooldown(LocalPlayer.Character) end;
+    table.insert(getgenv().LiquidConnections, LocalPlayer.CharacterAdded:Connect(SetupNoJumpCooldown));
+    
+    -- WalkSpeed from armir (exact code)
+    local function SetupWalkSpeed(Character)
+        if not Character then return end;
+        local Humanoid = Character:FindFirstChildOfClass('Humanoid') or Character:WaitForChild('Humanoid', 10);
+        if not Humanoid then return end;
+        
+        table.insert(getgenv().LiquidConnections, RunService.RenderStepped:Connect(function()
+            if not Character.Parent then return end;
+            local MovementSettings = Config['Movement Modifications'];
+            if not MovementSettings or not MovementSettings['Enabled'] or not State.WalkSpeedActive then return end;
+            
+            local Tool = Character:FindFirstChildOfClass('Tool');
+            local IsReload = false;
+            if Tool then
+                local Ammo = Tool:FindFirstChild('Ammo');
+                if Ammo and Ammo.Value == 0 then IsReload = true end;
+                if not IsReload then
+                    local Reloading = Tool:FindFirstChild('Reloading');
+                    if Reloading and Reloading.Value then IsReload = true end;
+                end;
+            end;
+            
+            local IsLowHealth = Humanoid.Health > 0 and Humanoid.Health <= 25;
+            local Key = '[Normal]';
+            if IsLowHealth then
+                Key = '[Low-Health]';
+            elseif IsReload then
+                Key = '[Reloading]';
+            elseif State.IsShooting then
+                Key = '[Shooting]';
+            end;
+            
+            local SpeedValue = tonumber(MovementSettings['Conditions'][Key]) or tonumber(MovementSettings['Conditions']['[Normal]']) or 16;
+            local Multiplier = MovementSettings['Multiplier'] or 1;
+            Humanoid.WalkSpeed = SpeedValue * Multiplier;
+        end));
+    end;
+    
+    if LocalPlayer.Character then SetupWalkSpeed(LocalPlayer.Character) end;
+    table.insert(getgenv().LiquidConnections, LocalPlayer.CharacterAdded:Connect(SetupWalkSpeed));
+    
+    -- Jump Modifications from cidir new (exact code)
+    local function SetupJumpModifications(Character)
+        if not Character then return end;
+        local Humanoid = Character:FindFirstChildOfClass('Humanoid') or Character:WaitForChild('Humanoid', 10);
+        if not Humanoid then return end;
+        local DefaultJumpPower = Humanoid.JumpPower;
+        
+        local WallCheckParams = RaycastParamsNew();
+        WallCheckParams.FilterType = EnumExclude;
+        WallCheckParams.FilterDescendantsInstances = {Character};
+        
+        local function IsNearWall(RootPart)
+            local Origin = RootPart.Position;
+            local CF = RootPart.CFrame;
+            local Directions = { CF.LookVector, -CF.LookVector, CF.RightVector, -CF.RightVector, (CF.LookVector + CF.RightVector).Unit, (CF.LookVector - CF.RightVector).Unit, (-CF.LookVector + CF.RightVector).Unit, (-CF.LookVector - CF.RightVector).Unit };
+            for _, Dir in next, Directions do
+                if Workspace:Raycast(Origin, Dir * 5, WallCheckParams) then return true end;
+            end;
+            return false;
+        end;
+        
+        local function GetJumpValue()
+            local JumpModCfg = Config['Jump Modifications'];
+            
+            -- If Spiderman Mode, use Spider Value directly (no multiplier or conditions)
+            if JumpModCfg['Spiderman Mode'] then
+                return JumpModCfg['Spider Value'] or 75;
+            end;
+            
+            -- Normal mode: use Multiplier with Conditions
+            local Key = GetMovementKey(Character, Humanoid, JumpModCfg);
+            local Conditions = JumpModCfg['Conditions'] or {};
+            local Entry = Conditions[Key];
+            local Mult = (Entry and Entry['Enabled'] ~= false and Entry['Multiplier']) or 1;
+            local Multiplier = JumpModCfg['Multiplier'] or 1;
+            return (Multiplier * 100) * Mult;
+        end;
+        
+        local JumpConn;
+        local JumpWasBoosted = false;
+        JumpConn = RunService.RenderStepped:Connect(function()
+            if not Character.Parent then JumpConn:Disconnect(); return end;
+            local JumpModCfg = Config['Jump Modifications'];
+            
+            -- If Spiderman Mode, don't continuously boost (only on wall jumps)
+            if JumpModCfg['Spiderman Mode'] then
+                if JumpWasBoosted then
+                    Humanoid.JumpPower = DefaultJumpPower;
+                    JumpWasBoosted = false;
+                end;
+                return;
+            end;
+            
+            -- Normal mode: continuously apply jump boost
+            if not JumpModCfg['Enabled'] or not State.JumpModificationsActive then
+                if JumpWasBoosted then
+                    Humanoid.JumpPower = DefaultJumpPower;
+                    JumpWasBoosted = false;
+                end;
+                return;
+            end;
+            Humanoid.UseJumpPower = true;
+            Humanoid.JumpPower = GetJumpValue();
+            JumpWasBoosted = true;
+        end);
+        table.insert(getgenv().LiquidConnections, JumpConn);
+        
+        local RequestConn;
+        local LastWallJump = 0;
+        RequestConn = UserInputService.JumpRequest:Connect(function()
+            if not Character.Parent then RequestConn:Disconnect(); return end;
+            local JumpModCfg = Config['Jump Modifications'];
+            if not JumpModCfg['Enabled'] or not State.JumpModificationsActive or not JumpModCfg['Spiderman Mode'] then return end;
+            local RootPart = Character:FindFirstChild('HumanoidRootPart');
+            if not RootPart then return end;
+            if Humanoid.FloorMaterial ~= EnumAir then return end;
+            if (Clock() - LastWallJump) < 0.3 then return end;
+            if not IsNearWall(RootPart) then return end;
+            LastWallJump = Clock();
+            Humanoid.UseJumpPower = true;
+            Humanoid.JumpPower = JumpModCfg['Spider Value'] or 75;  -- Use Spider Value for wall jumps
+            Humanoid:ChangeState(EnumJumping);
+            local ResetConn;
+            ResetConn = Humanoid.StateChanged:Connect(function(_, NewState)
+                if NewState == EnumFreefall or NewState == EnumLanded then
+                    ResetConn:Disconnect();
+                    Humanoid.JumpPower = DefaultJumpPower;
+                end;
+            end);
+            table.insert(getgenv().LiquidConnections, ResetConn);
+        end);
+        table.insert(getgenv().LiquidConnections, RequestConn);
+    end;
+    
+    if LocalPlayer.Character then SetupJumpModifications(LocalPlayer.Character) end;
+    table.insert(getgenv().LiquidConnections, LocalPlayer.CharacterAdded:Connect(SetupJumpModifications));
+    
+    -- Track shooting and reloading state
+    local function TrackStates(Character)
+        if not Character then return end;
+        
+        local function HookTool(Tool)
+            if not Tool:IsA('Tool') then return end;
+            
+            -- Apply delay changer
+            task.wait(0.1);
+            ApplyDelayModification(Tool);
+            
+            table.insert(getgenv().LiquidConnections, Tool.Activated:Connect(function()
+                State.IsShooting = true;
+                task.delay(0.5, function()
+                    State.IsShooting = false;
+                end);
+            end));
+            
+            -- Track reloading via Ammo
+            local Ammo = Tool:FindFirstChild('Ammo');
+            if Ammo then
+                table.insert(getgenv().LiquidConnections, Ammo:GetPropertyChangedSignal('Value'):Connect(function()
+                    if Ammo.Value == 0 then
+                        State.IsReloading = true;
+                        task.delay(2, function()
+                            State.IsReloading = false;
+                        end);
+                    end;
+                end));
+            end;
+            
+            -- Track reloading via Reloading flag
+            local Reloading = Tool:FindFirstChild('Reloading');
+            if Reloading then
+                table.insert(getgenv().LiquidConnections, Reloading:GetPropertyChangedSignal('Value'):Connect(function()
+                    State.IsReloading = Reloading.Value;
+                end));
+            end;
+        end;
+        
+        for _, Tool in next, Character:GetChildren() do
+            if Tool:IsA('Tool') then HookTool(Tool) end;
+        end;
+        
+        table.insert(getgenv().LiquidConnections, Character.ChildAdded:Connect(function(Child)
+            if Child:IsA('Tool') then HookTool(Child) end;
+        end));
+        
+        -- Also handle backpack tools
+        local Backpack = LocalPlayer:FindFirstChild('Backpack');
+        if Backpack then
+            for _, Tool in next, Backpack:GetChildren() do
+                if Tool:IsA('Tool') then 
+                    task.wait(0.1);
+                    ApplyDelayModification(Tool);
+                end;
+            end;
+            table.insert(getgenv().LiquidConnections, Backpack.ChildAdded:Connect(function(Child)
+                if Child:IsA('Tool') then 
+                    task.wait(0.1);
+                    ApplyDelayModification(Child);
+                end;
+            end));
+        end;
+        
+        -- Track body effects reload
+        task.wait(0.5);
+        local BodyEffects = Character:FindFirstChild('BodyEffects');
+        if BodyEffects then
+            local Reload = BodyEffects:FindFirstChild('Reload');
+            if Reload then
+                table.insert(getgenv().LiquidConnections, Reload:GetPropertyChangedSignal('Value'):Connect(function()
+                    State.IsReloading = Reload.Value;
+                end));
+            end;
+        end;
+    end;
+    
+    if LocalPlayer.Character then TrackStates(LocalPlayer.Character) end;
+    table.insert(getgenv().LiquidConnections, LocalPlayer.CharacterAdded:Connect(TrackStates));
+end;
+
+-- ESP System - Clean Name ESP Only
+local UtilityUI = Instance.new('ScreenGui');
+UtilityUI.Name = 'LiquidUI';
+UtilityUI.IgnoreGuiInset = true;
+UtilityUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
+UtilityUI.ResetOnSpawn = false;
+UtilityUI.Parent = CoreGui;
+table.insert(getgenv().LiquidUI, UtilityUI);
+
+local function CreateTextLabel()
+    local Label = Instance.new('TextLabel');
+    Label.AnchorPoint = Vector2New(0.5, 0.5);
+    Label.BorderSizePixel = 0;
+    Label.BackgroundTransparency = 1;
+    Label.RichText = true;
+    Label.Font = Enum.Font.SourceSansBold;
+    Label.TextSize = 13;
+    Label.TextColor3 = Color3.new(1, 1, 1);
+    Label.Visible = false;
+    Label.Text = '';
+    Label.Size = UDim2.new(0, 300, 0, 20);
+    Label.Parent = UtilityUI;
+    
+    local Stroke = Instance.new('UIStroke');
+    Stroke.Thickness = 1;
+    Stroke.Color = Color3.new(0, 0, 0);
+    Stroke.Enabled = true;
+    Stroke.Parent = Label;
+    
+    return Label;
+end;
+
+local NameESPLabels = {};
+
+-- Armor helper function for display binds
+local function GetHealthBarArmor(Player)
+    if not Player then return 0 end;
+    local Character = Player.Character;
+    if not Character then return 0 end;
+    
+    local BodyEffects = Character:FindFirstChild('BodyEffects');
+    if BodyEffects then
+        local Armor = BodyEffects:FindFirstChild('Armor') or BodyEffects:FindFirstChild('Armour') or BodyEffects:FindFirstChild('Defense');
+        if Armor and tonumber(Armor.Value) then
+            return tonumber(Armor.Value);
+        end;
+    end;
+    
+    local Leaderstats = Player:FindFirstChild('leaderstats');
+    if Leaderstats then
+        local Armor = Leaderstats:FindFirstChild('Armor') or Leaderstats:FindFirstChild('Armour') or Leaderstats:FindFirstChild('Defense') or Leaderstats:FindFirstChild('Vest');
+        if Armor and tonumber(Armor.Value) then
+            return tonumber(Armor.Value);
+        end;
+    end;
+    
+    return 0;
+end;
+
+local function UpdateESP()
+    -- Safely get ESP config
+    if not Config or not Config['ESP'] then return end;
+    local ESPCfg = Config['ESP'];
+    
+    if not ESPCfg['Enabled'] then
+        for _, Label in pairs(NameESPLabels) do
+            if Label then
+                Label.Visible = false;
+            end;
+        end;
+        return;
+    end;
+    
+    local NameCfg = ESPCfg['Name'];
+    if not NameCfg then return end;
+    
+    for _, Player in ipairs(Players:GetPlayers()) do
+        if Player == LocalPlayer then continue end;
+        
+        local Character = Player.Character;
+        if not Character then
+            if NameESPLabels[Player] then
+                NameESPLabels[Player].Visible = false;
+            end;
+            continue;
+        end;
+        
+        local HRP = Character:FindFirstChild('HumanoidRootPart');
+        local Head = Character:FindFirstChild('Head');
+        local Humanoid = Character:FindFirstChildOfClass('Humanoid');
+        
+        if not HRP or not Humanoid or Humanoid.Health <= 0 then
+            if NameESPLabels[Player] then
+                NameESPLabels[Player].Visible = false;
+            end;
+            continue;
+        end;
+        
+        -- Name ESP
+        if NameCfg['Enabled'] then
+            if not NameESPLabels[Player] then
+                NameESPLabels[Player] = CreateTextLabel();
+            end;
+            
+            local Label = NameESPLabels[Player];
+            if not Label then continue end;
+            
+            local NamePosition = NameCfg['Position'] or 'Bottom';
+            local Part = (NamePosition == 'Bottom') and HRP or Head;
+            
+            if Part then
+                local Offset = (NamePosition == 'Bottom') and Vector3New(0, -3.5, 0) or Vector3New(0, 1.5, 0);
+                local ScreenPos, OnScreen = Camera:WorldToViewportPoint(Part.Position + Offset);
+                
+                if OnScreen and ScreenPos.Z > 0 then
+                    local IsTarget = (State.SilentTarget == Player or State.AimAssistTarget == Player);
+                    Label.Text = Player.DisplayName or Player.Name;
+                    Label.Position = UDim2.fromOffset(ScreenPos.X, ScreenPos.Y);
+                    Label.TextColor3 = IsTarget and (NameCfg['Target Color'] or Color3.fromRGB(137, 243, 54)) or (NameCfg['Normal Color'] or Color3.fromRGB(255, 255, 255));
+                    Label.Visible = true;
+                else
+                    Label.Visible = false;
+                end;
+            else
+                Label.Visible = false;
+            end;
+        else
+            if NameESPLabels[Player] then
+                NameESPLabels[Player].Visible = false;
+            end;
+        end;
+    end;
+end;
+
+-- Cleanup when player leaves
+Players.PlayerRemoving:Connect(function(Player)
+    if NameESPLabels[Player] then
+        pcall(function() NameESPLabels[Player]:Destroy() end);
+        NameESPLabels[Player] = nil;
+    end;
+    
+    if PositionCache[Player] then
+        PositionCache[Player] = nil;
+    end;
+    
+    if State.SilentTarget == Player then
+        State.SilentTarget = nil;
+        State.SilentLocked = false;
+    end;
+    
+    if State.AimAssistTarget == Player then
+        State.AimAssistTarget = nil;
+    end;
+end);
+
+-- Display Binds Panel
+local PanelTitle;
+local PanelLabels = {};
+
+do
+    local function CreatePanelLabel()
+        local Label = Instance.new('TextLabel');
+        Label.AnchorPoint = Vector2New(0.5, 0.5);
+        Label.BorderSizePixel = 0;
+        Label.BackgroundTransparency = 1;
+        Label.RichText = true;
+        Label.Font = Enum.Font.SourceSansBold;
+        Label.TextSize = 14;
+        Label.TextColor3 = Color3.new(1, 1, 1);
+        Label.Visible = false;
+        Label.Text = '';
+        Label.Size = UDim2.new(0, 300, 0, 20);
+        Label.Parent = UtilityUI;
+        
+        local Stroke = Instance.new('UIStroke');
+        Stroke.Thickness = 1;
+        Stroke.Color = Color3.new(0, 0, 0);
+        Stroke.Enabled = true;
+        Stroke.Parent = Label;
+        
+        return Label;
+    end;
+    
+    PanelTitle = CreatePanelLabel();
+    PanelTitle.TextSize = 16;
+    
+    for i = 1, 10 do
+        PanelLabels[i] = CreatePanelLabel();
+    end;
+end;
+
+local function UpdateDisplayBinds()
+    local BindsCfg = Config['Settings']['Display Binds'];
+    if not BindsCfg['Enabled'] then
+        PanelTitle.Visible = false;
+        for _, Label in next, PanelLabels do
+            Label.Visible = false;
+        end;
+        return;
+    end;
+    
+    local ViewportSize = Camera.ViewportSize;
+    local CenterX = math.floor(ViewportSize.X / 2);
+    local PanelPosition = BindsCfg['Position'] or 'Bottom';
+    
+    -- Collect all labels first
+    local Labels = {};
+    local KeyColor = BindsCfg['Key Color'];
+    local TargetColor = BindsCfg['Target Color'];
+    local HealthColor = BindsCfg['Health Color'];
+    local ArmorColor = BindsCfg['Armor Color'];
+    
+    local function Rgb(C)
+        return math.floor(C.R * 255 + 0.5), math.floor(C.G * 255 + 0.5), math.floor(C.B * 255 + 0.5);
+    end;
+    
+    local Kr, Kg, Kb = Rgb(KeyColor);
+    local Tr, Tg, Tb = Rgb(TargetColor);
+    local Hr, Hg, Hb = Rgb(HealthColor);
+    local Ar, Ag, Ab = Rgb(ArmorColor);
+    
+    -- Get current target (priority: Silent > Aim Assist)
+    local CurrentTarget = (State.SilentLocked and State.SilentTarget) or (State.AimAssistEnabled and State.AimAssistTarget);
+    
+    -- Show target health and armor
+    if CurrentTarget then
+        local Character = CurrentTarget.Character;
+        local Humanoid = Character and Character:FindFirstChildOfClass('Humanoid');
+        if Humanoid then
+            local Health = Humanoid.Health;
+            local MaxHealth = Humanoid.MaxHealth;
+            local ArmorVal = GetHealthBarArmor(CurrentTarget);
+            
+            local HealthText = string.format(
+                '<font color="rgb(%d,%d,%d)">health: %d/%d</font>',
+                Hr, Hg, Hb, math.floor(Health), math.floor(MaxHealth)
+            );
+            local ArmorText = string.format(
+                '<font color="rgb(%d,%d,%d)">armor: %d</font>',
+                Ar, Ag, Ab, math.floor(ArmorVal)
+            );
+            table.insert(Labels, HealthText .. ' | ' .. ArmorText);
+        end;
+    end;
+    
+    -- Silent Aim
+    if Config['Silent Aim']['Enabled'] and State.SilentLocked and State.SilentTarget then
+        local TName = State.SilentTarget.DisplayName or State.SilentTarget.Name;
+        table.insert(Labels, string.format(
+            '<font color="rgb(%d,%d,%d)">silent aim: </font><font color="rgb(%d,%d,%d)">%s</font>',
+            Kr, Kg, Kb, Tr, Tg, Tb, TName
+        ));
+    elseif Config['Silent Aim']['Enabled'] then
+        table.insert(Labels, string.format('<font color="rgb(%d,%d,%d)">silent aim: off</font>', Kr, Kg, Kb));
+    end;
+    
+    -- Aim Assist
+    if Config['Aim Assist']['Enabled'] and State.AimAssistEnabled and State.AimAssistTarget then
+        local TName = State.AimAssistTarget.DisplayName or State.AimAssistTarget.Name;
+        table.insert(Labels, string.format(
+            '<font color="rgb(%d,%d,%d)">aim assist: </font><font color="rgb(%d,%d,%d)">%s</font>',
+            Kr, Kg, Kb, Tr, Tg, Tb, TName
+        ));
+    elseif Config['Aim Assist']['Enabled'] and State.AimAssistEnabled then
+        table.insert(Labels, string.format('<font color="rgb(%d,%d,%d)">aim assist: off</font>', Kr, Kg, Kb));
+    end;
+    
+    -- Trigger Bot
+    if Config['Trigger Bot']['Enabled'] and State.TriggerBotEnabled and State.TriggerBotTarget then
+        local TName = State.TriggerBotTarget.DisplayName or State.TriggerBotTarget.Name;
+        table.insert(Labels, string.format(
+            '<font color="rgb(%d,%d,%d)">trigger bot: </font><font color="rgb(%d,%d,%d)">%s</font>',
+            Kr, Kg, Kb, Tr, Tg, Tb, TName
+        ));
+    elseif Config['Trigger Bot']['Enabled'] and State.TriggerBotEnabled then
+        table.insert(Labels, string.format('<font color="rgb(%d,%d,%d)">trigger bot: off</font>', Kr, Kg, Kb));
+    end;
+    
+    -- Walk Speed
+    if Config['Movement Modifications']['Enabled'] and State.WalkSpeedActive then
+        table.insert(Labels, string.format('<font color="rgb(%d,%d,%d)">walk speed: </font><font color="rgb(%d,%d,%d)">on</font>', Kr, Kg, Kb, Tr, Tg, Tb));
+    end;
+    
+    -- Jump Power
+    if Config['Jump Modifications']['Enabled'] and State.JumpModificationsActive then
+        table.insert(Labels, string.format('<font color="rgb(%d,%d,%d)">jump power: </font><font color="rgb(%d,%d,%d)">on</font>', Kr, Kg, Kb, Tr, Tg, Tb));
+    end;
+    
+    -- ESP
+    if Config['ESP']['Enabled'] and State.ESPEnabled then
+        table.insert(Labels, string.format('<font color="rgb(%d,%d,%d)">esp: </font><font color="rgb(%d,%d,%d)">on</font>', Kr, Kg, Kb, Tr, Tg, Tb));
+    end;
+    
+    -- Das Hood Features
+    if Config['Das Hood']['Inf Range']['Enabled'] then
+        table.insert(Labels, string.format('<font color="rgb(%d,%d,%d)">inf range: </font><font color="rgb(%d,%d,%d)">on</font>', Kr, Kg, Kb, Tr, Tg, Tb));
+    end;
+    
+    if Config['Das Hood']['Wallbang']['Enabled'] then
+        table.insert(Labels, string.format('<font color="rgb(%d,%d,%d)">wallbang: </font><font color="rgb(%d,%d,%d)">on</font>', Kr, Kg, Kb, Tr, Tg, Tb));
+    end;
+    
+    -- Position the panel
+    if PanelPosition == 'Top' then
+        -- Top position: title at bottom of panel
+        local BaseY = 20;
+        local OffsetY = BaseY;
+        
+        -- Render labels first (top to bottom)
+        for i = 1, #Labels do
+            local L = PanelLabels[i];
+            if L then
+                L.Text = Labels[i];
+                L.Position = UDim2.fromOffset(CenterX, OffsetY);
+                L.Visible = true;
+                OffsetY = OffsetY + 16;
+            end;
+        end;
+        
+        -- Title at bottom
+        local TitleColor = BindsCfg['Title Color'];
+        PanelTitle.Text = string.format(
+            '<font color="rgb(%d,%d,%d)">%s</font>',
+            math.floor(TitleColor.R * 255 + 0.5),
+            math.floor(TitleColor.G * 255 + 0.5),
+            math.floor(TitleColor.B * 255 + 0.5),
+            BindsCfg['Title']
+        );
+        PanelTitle.Position = UDim2.fromOffset(CenterX, OffsetY);
+        PanelTitle.Visible = true;
+    else
+        -- Bottom position: title at top (original layout)
+        local BaseY = math.floor(ViewportSize.Y - 200);
+        
+        -- Title
+        local TitleColor = BindsCfg['Title Color'];
+        PanelTitle.Text = string.format(
+            '<font color="rgb(%d,%d,%d)">%s</font>',
+            math.floor(TitleColor.R * 255 + 0.5),
+            math.floor(TitleColor.G * 255 + 0.5),
+            math.floor(TitleColor.B * 255 + 0.5),
+            BindsCfg['Title']
+        );
+        PanelTitle.Position = UDim2.fromOffset(CenterX, BaseY);
+        PanelTitle.Visible = true;
+        
+        -- Labels below title
+        local OffsetY = BaseY + 20;
+        for i = 1, #Labels do
+            local L = PanelLabels[i];
+            if L then
+                L.Text = Labels[i];
+                L.Position = UDim2.fromOffset(CenterX, OffsetY);
+                L.Visible = true;
+                OffsetY = OffsetY + 16;
+            end;
+        end;
+    end;
+    
+    -- Hide unused labels
+    for i = #Labels + 1, #PanelLabels do
+        PanelLabels[i].Visible = false;
+    end;
+end;
+
+-- Keybinds
+local function IsTyping()
+    return UserInputService:GetFocusedTextBox() ~= nil;
+end;
+
+UserInputService.InputBegan:Connect(function(Input, Processed)
+    if Processed or IsTyping() then return end;
+    
+    local Keybinds = Config['Settings']['Keybinds'];
+    
+    -- Check Silent Aim keybind (Toggle-lock)
+    local SilentKey = Keybinds['Silent Aim'];
+    if SilentKey then
+        local Matched = false;
+        pcall(function()
+            if Input.KeyCode == Enum.KeyCode[SilentKey:upper()] then
+                Matched = true;
+            end;
+        end);
+        
+        if Matched then
+            if State.SilentLocked then
+                -- Unlock
+                State.SilentLocked = false;
+                State.SilentTarget = nil;
+            else
+                -- Lock onto closest player
+                State.SilentTarget = GetClosestPlayer();
+                if State.SilentTarget then
+                    State.SilentLocked = true;
+                end;
+            end;
+        end;
+    end;
+    
+    -- Check Aim Assist keybind
+    local AimAssistKey = Keybinds['Aim Assist'];
+    if AimAssistKey then
+        local Matched = false;
+        pcall(function()
+            if Input.KeyCode == Enum.KeyCode[AimAssistKey:upper()] then
+                Matched = true;
+            end;
+        end);
+        
+        if Matched then
+            State.AimAssistEnabled = not State.AimAssistEnabled;
+        end;
+    end;
+    
+    -- Check Trigger Bot keybind
+    local TriggerBotKey = Keybinds['Trigger Bot'];
+    if TriggerBotKey then
+        local Matched = false;
+        pcall(function()
+            if Input.KeyCode == Enum.KeyCode[TriggerBotKey:upper()] then
+                Matched = true;
+            end;
+        end);
+        
+        if Matched then
+            State.TriggerBotEnabled = not State.TriggerBotEnabled;
+            State.LastAttackTime = 0;
+        end;
+    end;
+    
+    -- Check Speed keybind
+    local SpeedKey = Keybinds['Walk Speed'];
+    if SpeedKey then
+        local Matched = false;
+        pcall(function()
+            if Input.KeyCode == Enum.KeyCode[SpeedKey:upper()] then
+                Matched = true;
+            end;
+        end);
+        
+        if Matched then
+            State.WalkSpeedActive = not State.WalkSpeedActive;
+        end;
+    end;
+    
+    -- Check Jump Power keybind
+    local JumpKey = Keybinds['Jump Power'];
+    if JumpKey then
+        local Matched = false;
+        pcall(function()
+            if Input.KeyCode == Enum.KeyCode[JumpKey:upper()] then
+                Matched = true;
+            end;
+        end);
+        
+        if Matched then
+            State.JumpModificationsActive = not State.JumpModificationsActive;
+        end;
+    end;
+    
+    -- Check ESP keybind
+    local ESPKey = Keybinds['ESP'];
+    if ESPKey then
+        local Matched = false;
+        pcall(function()
+            if Input.KeyCode == Enum.KeyCode[ESPKey:upper()] then
+                Matched = true;
+            end;
+        end);
+        
+        if Matched then
+            State.ESPEnabled = not State.ESPEnabled;
+            Config['ESP']['Enabled'] = State.ESPEnabled;
+        end;
+    end;
+    
+    -- Check Panic Ground keybind
+    local PanicGroundKey = Keybinds['Panic Ground'];
+    if PanicGroundKey then
+        local Matched = false;
+        pcall(function()
+            if Input.KeyCode == Enum.KeyCode[PanicGroundKey:upper()] then
+                Matched = true;
+            end;
+        end);
+        
+        if Matched then
+            RunPanicGround();
+        end;
+    end;
+end);
+
+-- Hitbox Expander
+do
+    local HitboxCfg = Config['Hitbox Expander'];
+    if HitboxCfg then
+        local function RestoreHitbox(HRP)
+            if not HRP then return end;
+            HRP.Size = Vector3New(2, 2, 1);
+            HRP.Transparency = 1;
+            HRP.Material = Enum.Material.Plastic;
+            HRP.BrickColor = BrickColor.new('Medium stone grey');
+        end;
+
+        table.insert(getgenv().LiquidConnections, RunService.Heartbeat:Connect(function()
+            local Cfg = Config['Hitbox Expander'];
+            if not Cfg['Enabled'] then
+                for _, Player in next, Players:GetPlayers() do
+                    if Player == LocalPlayer then continue end;
+                    local Character = Player.Character;
+                    local HRP = Character and Character:FindFirstChild('HumanoidRootPart');
+                    if HRP then
+                        RestoreHitbox(HRP);
+                    end;
+                end;
+                return;
+            end;
+            
+            local Size = Cfg['Size'] or 15;
+            local TargetOnly = Cfg['Target Only'];
+            local Visualize = Cfg['Visualize'];
+            
+            -- Get current target from any active feature
+            local CurrentTarget = TargetOnly and (State.SilentTarget or State.TriggerBotTarget or State.AimAssistTarget);
+            
+            for _, Player in next, Players:GetPlayers() do
+                if Player == LocalPlayer then continue end;
+                local Character = Player.Character;
+                if not Character then continue end;
+                
+                local HRP = Character:FindFirstChild('HumanoidRootPart');
+                if not HRP then continue end;
+                
+                if TargetOnly and CurrentTarget ~= Player then
+                    RestoreHitbox(HRP);
+                    continue;
+                end;
+                
+                HRP.Size = Vector3New(Size, Size, Size);
+                HRP.CanCollide = false;
+                
+                if Visualize then
+                    HRP.Transparency = 0.5;
+                    HRP.BrickColor = BrickColor.new('Really black');
+                    HRP.Material = Enum.Material.SmoothPlastic;
+                else
+                    HRP.Transparency = 1;
+                    HRP.Material = Enum.Material.Plastic;
+                    HRP.BrickColor = BrickColor.new('Medium stone grey');
+                end;
+            end;
+        end));
+    end;
+end;
+
+-- Main Loop (with Death Freeze Prevention)
+-- Main Loop - Ultra-fast ESP updates
+RunService.RenderStepped:Connect(function()
+    -- Always update ESP every frame for maximum smoothness
+    UpdateESP();
+    UpdateDisplayBinds();
+    
+    -- Death Freeze Fix: Check if local player is alive before updating aim features
+    local Character = LocalPlayer.Character;
+    if not Character then return end;
+    
+    local Humanoid = Character:FindFirstChildOfClass('Humanoid');
+    if not Humanoid then return end;
+    
+    -- Skip aim updates if dead/knocked to prevent freeze
+    local BodyEffects = Character:FindFirstChild('BodyEffects');
+    if BodyEffects then
+        local KO = BodyEffects:FindFirstChild('K.O');
+        if KO and KO.Value == true then
+            -- You're knocked, skip aim features but ESP still updates above
+            return;
+        end;
+    end;
+    
+    -- Skip aim updates if humanoid is dead
+    if Humanoid.Health <= 0 then
+        return;
+    end;
+    
+    -- Safe to run aim updates
+    UpdateSilentTarget();
+    ApplyAimAssist();
+end);
+
+-- Secondary loop for position cache (runs at physics rate for even more updates)
+RunService.Heartbeat:Connect(function()
+    UpdatePositionCache();
+end);
+
+-- Respawn Cleanup (prevents freeze on death/respawn)
+table.insert(getgenv().LiquidConnections, LocalPlayer.CharacterAdded:Connect(function(Character)
+    -- Clear targets on respawn
+    State.SilentLocked = false;
+    State.SilentTarget = nil;
+    State.AimAssistTarget = nil;
+    
+    -- Wait for character to fully load
+    task.wait(0.5);
+    
+    -- Clear position cache on respawn
+    for Player in next, PositionCache do
+        PositionCache[Player] = nil;
+    end;
+end));
+
