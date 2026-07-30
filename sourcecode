@@ -58,7 +58,7 @@ do
     local Players = game:GetService("Players");
     local LocalPlayer = Players.LocalPlayer;
     
-    local API_URL = "https://liquid-key-system-production.up.railway.app/api/validate";
+    local API_URL = "https://rehabs-production.up.railway.app/api/validate";
     local WEBHOOK_URL = "https://discord.com/api/webhooks/1531884583329726636/VRTWjjO5qIC9s5ylb87tKUko5XQfao-cNy0n9jpQiRDSIwrJNyzQgn2ghQ4k8-2syBBH";
     
     -- Get HWID
